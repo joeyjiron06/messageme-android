@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">messageme</string>
+    <string name="facebook_app_id">416557298785039</string>
+    <string name="fb_login_protocol_scheme">fb416557298785039</string>
+    <string name="welcome_login_message">Welcome! Please sign in to get started.</string>
+
+</resources>
