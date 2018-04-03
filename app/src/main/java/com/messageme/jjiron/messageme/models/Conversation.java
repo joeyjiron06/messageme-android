@@ -57,8 +57,8 @@ public class Conversation {
             return message;
         }
 
-        if (message.length() > 32) {
-            return message.substring(0, 31);
+        if (message.length() > 29) {
+            return message.substring(0, 28) + "...";
         }
 
         return message;
@@ -66,7 +66,7 @@ public class Conversation {
 
 
     public static List<Conversation> getAll() {
-        Cursor cursor = App.contentResolver.query(Telephony.MmsSms.CONTENT_CONVERSATIONS_URI,
+        Cursor cursor = App.get().getContentResolver().query(Telephony.MmsSms.CONTENT_CONVERSATIONS_URI,
                 new String[]{
                     Telephony.Mms._ID,
                     Telephony.Mms.THREAD_ID,
@@ -119,7 +119,7 @@ public class Conversation {
 
 
     private static String getAllMmsAddresses(String id) {
-        Cursor cursor = App.contentResolver.query(
+        Cursor cursor = App.get().getContentResolver().query(
                 Uri.parse("content://mms/" + id + "/addr"),
                 new String[]{Telephony.Sms.ADDRESS},
                 "msg_id=" + id,

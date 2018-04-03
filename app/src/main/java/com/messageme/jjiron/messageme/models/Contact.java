@@ -38,7 +38,7 @@ public class Contact {
     }
 
     public static List<Contact> getAllMobile() {
-        Cursor cursor = App.contentResolver.query(
+        Cursor cursor = App.get().getContentResolver().query(
             ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
             new String[] {
                 ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,

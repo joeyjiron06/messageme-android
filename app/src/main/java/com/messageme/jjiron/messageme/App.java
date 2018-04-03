@@ -2,14 +2,21 @@ package com.messageme.jjiron.messageme;
 
 import android.app.Application;
 import android.content.ContentResolver;
+import android.content.Context;
 
 
 public class App extends Application {
-	public static ContentResolver contentResolver;
+
+	private static App instance;
+
+	public static App get() {
+		return instance;
+	}
+
 	@Override
 	public void onCreate() {
 		super.onCreate();
-		contentResolver = getContentResolver();
+		instance = this;
 	}
 
 	@Override
