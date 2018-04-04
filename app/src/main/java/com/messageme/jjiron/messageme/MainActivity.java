@@ -47,11 +47,6 @@ public class MainActivity extends AppCompatActivity {
     private void onAllPermissionsGranted() {
         Log.d(TAG, "onAllPermissionsGranted");
         Firebase.getInstance().login();
-
-        List<Message> messages = Message.mmsMessages("55");
-        for (Message message: messages) {
-            Log.d(TAG, "mms message " + message.toString());
-        }
     }
 
 	@Override

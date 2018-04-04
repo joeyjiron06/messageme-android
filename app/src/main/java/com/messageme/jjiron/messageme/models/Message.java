@@ -2,13 +2,18 @@ package com.messageme.jjiron.messageme.models;
 
 import android.content.ContentResolver;
 import android.database.Cursor;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.net.Uri;
 import android.provider.Telephony;
+import android.util.Log;
 
 import com.google.firebase.database.IgnoreExtraProperties;
 import com.messageme.jjiron.messageme.App;
 import com.messageme.jjiron.messageme.Cursors;
 
+import java.io.IOException;
+import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -37,7 +42,7 @@ public class Message {
     public String address;
     public int status; // 1 received, 2 sent
     public String type = Type.SMS; // default to sms
-    public String imageType; // for mms with images
+    public String mmsType; // for mms with images, videos, or other attachments
     public String outboxKey;
 
     public Message() {
@@ -59,48 +64,12 @@ public class Message {
                 .append(type)
                 .append(" status: ")
                 .append(Status.toString(status))
-                .append(" imageType: ")
-                .append(imageType)
+                .append(" mmsType: ")
+                .append(mmsType)
                 .append(" body: ")
                 .append(body)
                 .toString();
     }
-
-    public static Message getLastSent(String threadId) {
-        // TODO also check for MMS message
-
-        Cursor cursor = getContentResolver().query(
-                Telephony.Sms.CONTENT_URI,
-                new String[]{
-                    Telephony.Sms._ID,
-                    Telephony.Sms.THREAD_ID,
-                    Telephony.Sms.TYPE,
-                    Telephony.Sms.DATE,
-                    Telephony.Sms.ADDRESS,
-                    Telephony.Sms.BODY
-                },
-                "thread_id=" + threadId + " AND type="+Telephony.Sms.MESSAGE_TYPE_SENT,
-                null,
-                "date desc limit 1");
-
-        Message message = null;
-
-        if (cursor != null && cursor.moveToFirst()) {
-            message = new Message();
-
-            message.threadId = threadId;
-            message.id = cursor.getString(cursor.getColumnIndex(Telephony.Sms._ID));
-            message.status = cursor.getInt(cursor.getColumnIndex(Telephony.Sms.TYPE));
-            message.date = cursor.getLong(cursor.getColumnIndex(Telephony.Sms.DATE));
-            message.address = Contact.normalizeAddress(cursor.getString(cursor.getColumnIndex(Telephony.Sms.ADDRESS)));
-            message.body = cursor.getString(cursor.getColumnIndex(Telephony.Sms.BODY));
-
-            cursor.close();
-        }
-
-        return message;
-    }
-
 
     public static class Type {
         public static final String SMS = "SMS";
@@ -137,7 +106,6 @@ public class Message {
 
         return messages;
     }
-
 
     public static List<Message> smsMessages(String threadId) {
         List<Message> messages = new ArrayList<>();
@@ -204,6 +172,59 @@ public class Message {
         return messages;
     }
 
+    public static Bitmap getImage(String mmsId) {
+        String imagePartId = getImagePartId(mmsId);
+
+        if (imagePartId == null) {
+            return null;
+        }
+
+        InputStream inputStream = null;
+        Bitmap bitmap = null;
+
+        try {
+            inputStream = getContentResolver().openInputStream(Uri.parse("content://mms/part/" + imagePartId));
+            bitmap = BitmapFactory.decodeStream(inputStream);
+        } catch (IOException e) {
+            Log.e(TAG, "error getting image " + e);
+        } finally {
+            if (inputStream != null) {
+                try {
+                    inputStream.close();
+                } catch (IOException e) {
+                    Log.e(TAG, "error closing inputStream image " + e);
+                }
+            }
+        }
+
+        return bitmap;
+    }
+
+    private static String getImagePartId(String mmsId) {
+        Cursor cursor = getContentResolver().query(
+                Uri.parse("content://mms/part"),
+                null,
+                "mid=" + mmsId,
+                null,
+                null);
+
+        String partId = null;
+
+        if (cursor != null && cursor.moveToFirst()) {
+            do {
+                String type = cursor.getString(cursor.getColumnIndex("ct"));
+                if (IMAGE_TYPES.contains(type)) {
+                    partId = cursor.getString(cursor.getColumnIndex("_id"));
+                    break;
+                }
+            } while (cursor.moveToNext());
+
+            cursor.close();
+        }
+
+        return partId;
+    }
+
     private static void setMmsParts(Message message) {
         Cursor cursor = getContentResolver().query(
                 Uri.parse("content://mms/part"),
@@ -217,8 +238,9 @@ public class Message {
             if ("text/plain".equals(type)) {
                 message.body = cursor.getString(cursor.getColumnIndex(Telephony.Mms.Part.TEXT));
             } else if (IMAGE_TYPES.contains(type)) {
-                message.imageType = type;
+                message.mmsType = type;
             }
+            // TODO videos as well
         });
     }
 

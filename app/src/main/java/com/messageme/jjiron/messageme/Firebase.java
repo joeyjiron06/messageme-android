@@ -9,6 +9,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.database.ContentObserver;
+import android.graphics.Bitmap;
 import android.os.AsyncTask;
 import android.os.Handler;
 import android.provider.Telephony;
@@ -26,10 +27,13 @@ import com.google.firebase.database.DatabaseError;
 import com.google.firebase.database.DatabaseReference;
 import com.google.firebase.database.FirebaseDatabase;
 import com.google.firebase.database.ValueEventListener;
+import com.google.firebase.storage.FirebaseStorage;
+import com.google.firebase.storage.StorageReference;
 import com.messageme.jjiron.messageme.models.Contact;
 import com.messageme.jjiron.messageme.models.Conversation;
 import com.messageme.jjiron.messageme.models.Message;
 
+import java.io.ByteArrayOutputStream;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -55,6 +59,8 @@ public class Firebase {
     private AsyncTask<String, Integer, List<Message>> messageSync;
     private boolean hasLoggedIn;
     private final List<Message> outboxMessages;
+    private StorageReference imageStorageDB;
+    private DatabaseReference mmsUploadUrlsDB;
 
     public static Firebase getInstance() {
         if (instance == null) {
@@ -94,6 +100,7 @@ public class Firebase {
     @SuppressLint("MissingPermission")
     private void onLoggedIn(FirebaseUser user) {
         DatabaseReference db = FirebaseDatabase.getInstance().getReference();
+        StorageReference storage = FirebaseStorage.getInstance().getReference();
         String uid = user.getUid();
 
         // setup firebase databases
@@ -103,10 +110,13 @@ public class Firebase {
         messagesDB = db.child("messages").child(uid);
         desktopDB = db.child("desktop").child(uid);
         conversationsDB = db.child("conversations").child(uid);
+        mmsUploadUrlsDB = db.child("mmsUploadUrls").child(uid);
+        imageStorageDB = storage.child("images").child(uid);
 
         // add firebase listeners
         outboxDB.addChildEventListener(new OutboxListener());
         desktopDB.child("conversation").addValueEventListener(new ConversationListener());
+        desktopDB.child("requests").child("mmsUpload").addChildEventListener(new MmsUploadRequestListener());
 
 
         // add listeners for message changes
@@ -374,6 +384,65 @@ public class Firebase {
         @Override
         public void onCancelled(DatabaseError databaseError) {
 
+        }
+    }
+
+    private class MmsUploadRequestListener extends FirebaseChildListenerAdapter {
+        @Override
+        public void onChildAdded(DataSnapshot dataSnapshot, String s) {
+            String mmsId = dataSnapshot.getKey();
+            Log.d(TAG, "mmsUpload child added " + mmsId);
+            attemptUploadMMSContent(mmsId);
+        }
+
+        @SuppressLint("StaticFieldLeak")
+        private void attemptUploadMMSContent(String mmsId) {
+            new AsyncTask<Void, Integer, byte[]>() {
+
+                @Override
+                protected byte[] doInBackground(Void... voids) {
+                    Bitmap bitmap = Message.getImage(mmsId);
+                    byte[] imageBytes = null;
+
+                    if (bitmap != null) {
+                        Log.d(TAG, "got a bitmap!");
+
+                        ByteArrayOutputStream imageByteStream = new ByteArrayOutputStream();
+                        int quality = 70;
+                        bitmap.compress(Bitmap.CompressFormat.JPEG, quality, imageByteStream);
+                        imageBytes = imageByteStream.toByteArray();
+
+                    } else {
+                        Log.d(TAG, "no bitmap for mmsId " + mmsId);
+                    }
+
+                    return imageBytes;
+                }
+
+                @Override
+                protected void onPostExecute(byte[] imageBytes) {
+                    if (imageBytes == null) {
+                        Log.d(TAG, "no image found for mmsId " + mmsId);
+                        return;
+                    }
+
+                    imageStorageDB.child(mmsId + ".jpg")
+                        .putBytes(imageBytes)
+                        .addOnSuccessListener(taskSnapshot -> {
+                            Log.d(TAG, "image upload success ");
+
+                            String url = taskSnapshot.getDownloadUrl().toString();
+
+                            // remove from requests since the request is now fullfilled
+                            desktopDB.child("requests").child("mmsUpload").child(mmsId).removeValue();
+
+                            mmsUploadUrlsDB.child(mmsId).setValue(url);
+                        })
+                        .addOnFailureListener(e -> {
+                            Log.e(TAG, "image upload error " + e);
+                        });
+                }
+            }.execute();
         }
     }
 
