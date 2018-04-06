@@ -35,19 +35,15 @@ import com.messageme.jjiron.messageme.models.Message;
 
 import java.io.ByteArrayOutputStream;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 public class Firebase {
     private static final String TAG = "Firebase";
 
     private static final String SENT_BROADCAST = "SMS_BROADCAST";
 
-    private DatabaseReference outboxDB;
-    private DatabaseReference sentDB;
-    private DatabaseReference contactsDB;
-    private DatabaseReference messagesDB;
-    private DatabaseReference desktopDB;
-    private DatabaseReference conversationsDB;
     private SmsMmsContentListener smsMmsContentListener;
 
     private static Firebase instance;
@@ -58,9 +54,15 @@ public class Firebase {
     private AsyncTask<Void, Integer, List<Conversation>> conversationSync;
     private AsyncTask<String, Integer, List<Message>> messageSync;
     private boolean hasLoggedIn;
+
+    // firebase references
+    private DatabaseReference db;
+    private StorageReference storage;
+
+    // cached data
     private final List<Message> outboxMessages;
-    private StorageReference imageStorageDB;
-    private DatabaseReference mmsUploadUrlsDB;
+    private final Set<String> sentIds;
+
 
     public static Firebase getInstance() {
         if (instance == null) {
@@ -71,6 +73,7 @@ public class Firebase {
 
     private Firebase() {
         outboxMessages = new ArrayList<>();
+        sentIds = new HashSet<>();
     }
 
 
@@ -99,24 +102,14 @@ public class Firebase {
 
     @SuppressLint("MissingPermission")
     private void onLoggedIn(FirebaseUser user) {
-        DatabaseReference db = FirebaseDatabase.getInstance().getReference();
-        StorageReference storage = FirebaseStorage.getInstance().getReference();
-        String uid = user.getUid();
-
-        // setup firebase databases
-        outboxDB = db.child("outbox").child(uid);
-        sentDB = db.child("sent").child(uid);
-        contactsDB = db.child("contacts").child(uid);
-        messagesDB = db.child("messages").child(uid);
-        desktopDB = db.child("desktop").child(uid);
-        conversationsDB = db.child("conversations").child(uid);
-        mmsUploadUrlsDB = db.child("mmsUploadUrls").child(uid);
-        imageStorageDB = storage.child("images").child(uid);
+        db = FirebaseDatabase.getInstance().getReference().child(user.getUid());
+        storage = FirebaseStorage.getInstance().getReference().child(user.getUid());
 
         // add firebase listeners
-        outboxDB.addChildEventListener(new OutboxListener());
-        desktopDB.child("conversation").addValueEventListener(new ConversationListener());
-        desktopDB.child("requests").child("mmsUpload").addChildEventListener(new MmsUploadRequestListener());
+        db.child("outbox").addChildEventListener(new OutboxListener());
+        db.child("sent").addValueEventListener(new SentListener());
+        db.child("desktop").child("conversation").addValueEventListener(new ConversationListener());
+        db.child("desktop").child("requests").child("mmsUpload").addChildEventListener(new MmsUploadRequestListener());
 
 
         // add listeners for message changes
@@ -156,7 +149,7 @@ public class Firebase {
             @Override
             protected void onPostExecute(List<Contact> contacts) {
                 for (Contact contact : contacts) {
-                    contactsDB.child(contact.number).setValue(contact.displayName);
+                    db.child("contacts").child(contact.number).setValue(contact.displayName);
                 }
 
                 contactsSync = null;
@@ -184,7 +177,7 @@ public class Firebase {
 
             @Override
             protected void onPostExecute(List<Conversation> conversations) {
-                conversationsDB.setValue(conversations);
+                db.child("conversations").setValue(conversations);
                 conversationSync = null;
                 Log.d(TAG, "done syncAllConversations");
             }
@@ -206,13 +199,16 @@ public class Firebase {
             messageSync.cancel(true);
         }
 
-        // copy the outbox on the ui thread so we dont have problems iterating on a separate thread
+        // copy these values so that we don't have problems iterating on a background thread
         final List<Message> outbox = new ArrayList<>(outboxMessages);
-        final List<Message> newlySent = new ArrayList<>();
+        final Set<String> sentMessageIds = new HashSet<>(sentIds);
+        final Set<String> sentOutboxIds = new HashSet<>();
 
         messageSync = new AsyncTask<String, Integer, List<Message>>() {
             @Override
             protected List<Message> doInBackground(String... strings) {
+                // all the sms/mms messages for the conversation
+                // TODO improve this with caching
                 List<Message> messages = Message.getAll(conversationId);
 
                 // merge outbox messages, but also just add items that have NOT been sent to avoid
@@ -222,17 +218,14 @@ public class Firebase {
                         Message sentMessage = findMatch(messages, outboxMessage);
 
                         if (sentMessage != null) {
-                            // save the key!
-                            sentMessage.outboxKey = outboxMessage.outboxKey;
-
-                            // it was sent!
-                            newlySent.add(sentMessage);
+                            // it was sent. dont add it to the messages list because its already there
+                            sentMessageIds.add(sentMessage.id);
+                            sentOutboxIds.add(outboxMessage.id);
                         } else {
                             // hasn't been sent. add it to the list so it shows up in the UI
                             messages.add(outboxMessage);
                         }
                     }
-
 
                     // only sort when we have outbox messages. by default Message.getAll returns
                     // sorted items
@@ -251,18 +244,27 @@ public class Firebase {
                     Log.d(TAG, "no outbox");
                 }
 
+                for (Message message : messages) {
+                    message.sentFromDesktop = sentMessageIds.contains(message.id);
+                }
+
                 return messages;
             }
 
             @Override
             protected void onPostExecute(List<Message> messages) {
-                // update the sent/outbox db
-                for (Message sentMessage: newlySent) {
-                    sentDB.child(sentMessage.id).setValue(true); // mark this message
-                    outboxDB.child(sentMessage.outboxKey).removeValue();
+                // remove any sent outbox messages from the outbox
+                for (String outboxId : sentOutboxIds) {
+                    db.child("outbox").child(outboxId).removeValue();
                 }
 
-                messagesDB.child(conversationId).setValue(messages);
+                // update the sent message ids
+                for (String messageId : sentMessageIds) {
+                    db.child("sent").child(messageId).setValue(true);
+                }
+
+                // update the message for the specific conversation
+                db.child("messages").child(conversationId).setValue(messages);
 
                 messageSync = null;
 
@@ -295,6 +297,22 @@ public class Firebase {
     }
 
     // INTERNAL LISTENERS
+    private class SentListener implements ValueEventListener {
+        @Override
+        public void onDataChange(DataSnapshot dataSnapshot) {
+            // clear any previous data
+            sentIds.clear();
+
+            for (DataSnapshot snapshot : dataSnapshot.getChildren()) {
+                String messageId = snapshot.getKey();
+                sentIds.add(messageId);
+            }
+        }
+
+        @Override
+        public void onCancelled(DatabaseError databaseError) { }
+    }
+
 
     private class OutboxListener extends FirebaseChildListenerAdapter {
         @Override
@@ -310,7 +328,6 @@ public class Firebase {
                 return;
             }
 
-            outboxMessage.outboxKey = dataSnapshot.getKey();
             outboxMessages.add(outboxMessage);
 
             // add error handler
@@ -426,7 +443,8 @@ public class Firebase {
                         return;
                     }
 
-                    imageStorageDB.child(mmsId + ".jpg")
+                    storage.child("images")
+                        .child(mmsId + ".jpg")
                         .putBytes(imageBytes)
                         .addOnSuccessListener(taskSnapshot -> {
                             Log.d(TAG, "image upload success ");
@@ -434,9 +452,9 @@ public class Firebase {
                             String url = taskSnapshot.getDownloadUrl().toString();
 
                             // remove from requests since the request is now fullfilled
-                            desktopDB.child("requests").child("mmsUpload").child(mmsId).removeValue();
+                            db.child("desktop").child("requests").child("mmsUpload").child(mmsId).removeValue();
 
-                            mmsUploadUrlsDB.child(mmsId).setValue(url);
+                            db.child("mmsUploadUrls").child(mmsId).setValue(url);
                         })
                         .addOnFailureListener(e -> {
                             Log.e(TAG, "image upload error " + e);

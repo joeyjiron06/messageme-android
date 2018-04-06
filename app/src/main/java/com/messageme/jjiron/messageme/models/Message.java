@@ -16,7 +16,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -35,45 +34,37 @@ public class Message {
         "image/png"
     ));
 
-    public String id;
-    public String threadId;
-    public String body;
-    public long date;
-    public String address;
-    public int status; // 1 received, 2 sent
-    public String type = Type.SMS; // default to sms
-    public String mmsType; // for mms with images, videos, or other attachments
-    public String outboxKey;
+    public String id; // id of the message
+    public String conversationId; // id of the conversation
+    public String body; // text content of the message
+    public long date; // when the text was sent/receive
+    public String address; // phone number of the person who sent the message
+    public int status; // Message.Status
+    public boolean sentFromDesktop; // did we send this from the desktop or not
+    public List<Message.Part> parts;
 
-    public Message() {
+
+    public Message() {}
+
+    private void addPart(Part part) {
+        if (parts == null) {
+            parts = new ArrayList<>();
+        }
+
+        parts.add(part);
     }
 
     @Override
     public String toString() {
         return new StringBuilder()
-                .append("Message -- ")
-                .append("id: ")
-                .append(id)
-                .append(" threadId: ")
-                .append(threadId)
-                .append(" address: ")
-                .append(address)
-                .append(" date: ")
-                .append(date)
-                .append(" type: ")
-                .append(type)
-                .append(" status: ")
-                .append(Status.toString(status))
-                .append(" mmsType: ")
-                .append(mmsType)
-                .append(" body: ")
-                .append(body)
+                .append("Message --")
+                .append(" id: ").append(id)
+                .append(" conversationId: ").append(conversationId)
+                .append(" address: ").append(address)
+                .append(" date: ").append(date)
+                .append(" status: ").append(Status.toString(status))
+                .append(" body: ").append(body)
                 .toString();
-    }
-
-    public static class Type {
-        public static final String SMS = "SMS";
-        public static final String MMS = "MMS";
     }
 
     public static class Status {
@@ -89,11 +80,24 @@ public class Message {
         }
     }
 
-    public static List<Message> getAll(String threadId) {
+    public static class Part {
+        public String id; // id of the part in the mms message
+        public String type; // Part.Type - the type of content
+
+        public Part() {
+        }
+
+        public static class Type {
+            public static final String IMAGE = "IMAGE";
+            public static final String VIDEO = "VIDEO";
+        }
+    }
+
+    public static List<Message> getAll(String conversationId) {
         List<Message> messages = new ArrayList<>();
 
-        messages.addAll(smsMessages(threadId));
-        messages.addAll(mmsMessages(threadId));
+        messages.addAll(getSmsMessages(conversationId));
+        messages.addAll(getMmsMessages(conversationId));
 
         messages.sort((m1, m2) -> {
             if (m1.date < m2.date) {
@@ -107,7 +111,7 @@ public class Message {
         return messages;
     }
 
-    public static List<Message> smsMessages(String threadId) {
+    public static List<Message> getSmsMessages(String conversationId) {
         List<Message> messages = new ArrayList<>();
 
         Cursor smsCursor = getContentResolver().query(
@@ -120,14 +124,14 @@ public class Message {
                     Telephony.Sms.ADDRESS,
                     Telephony.Sms.BODY
                 },
-                "thread_id=" + threadId,
+                "thread_id=" + conversationId,
                 null,
                 ORDER_BY);
 
         Cursors.iterate(smsCursor, () -> {
             Message message = new Message();
 
-            message.threadId = threadId;
+            message.conversationId = conversationId;
             message.id = smsCursor.getString(smsCursor.getColumnIndex(Telephony.Sms._ID));
             message.status = smsCursor.getInt(smsCursor.getColumnIndex(Telephony.Sms.TYPE));
             message.date = smsCursor.getLong(smsCursor.getColumnIndex(Telephony.Sms.DATE));
@@ -140,24 +144,23 @@ public class Message {
         return messages;
     }
 
-    public static List<Message> mmsMessages(String threadId) {
+    public static List<Message> getMmsMessages(String conversationId) {
         List<Message> messages = new ArrayList<>();
 
         Cursor mmsCursor = getContentResolver().query(
                 Telephony.Mms.CONTENT_URI,
                 null,
-                "thread_id=" + threadId,
+                "thread_id=" + conversationId,
                 null,
                 ORDER_BY);
 
         Cursors.iterate(mmsCursor, () -> {
             Message message = new Message();
 
-            message.threadId = threadId;
+            message.conversationId = conversationId;
             message.id = mmsCursor.getString(mmsCursor.getColumnIndex(Telephony.Mms._ID));
             message.date = mmsCursor.getLong(mmsCursor.getColumnIndex(Telephony.Mms.DATE)) * 1000;
             message.status = mmsCursor.getInt(mmsCursor.getColumnIndex(Telephony.Mms.MESSAGE_BOX));
-            message.type = Message.Type.MMS;
             setMmsParts(message);
 
 
@@ -238,7 +241,10 @@ public class Message {
             if ("text/plain".equals(type)) {
                 message.body = cursor.getString(cursor.getColumnIndex(Telephony.Mms.Part.TEXT));
             } else if (IMAGE_TYPES.contains(type)) {
-                message.mmsType = type;
+                Part part = new Part();
+                part.id = cursor.getString(cursor.getColumnIndex(Telephony.Mms.Part.CONTENT_ID));
+                part.type = Part.Type.IMAGE;
+                message.addPart(part);
             }
             // TODO videos as well
         });

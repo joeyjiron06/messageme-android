@@ -17,20 +17,11 @@ public class Conversation {
     public String id;
     public String body;
     public long date;
-    public String address;
+    public String address; // phone number of other person, or list of addresses separate by a "," for group convos
     public int type; // 1 received, 2 sent
     public String messageType; // Message.Type
 
     public Conversation() {
-    }
-
-    public Conversation(String id, String body, long date, String address, int type, String messageType) {
-        this.id = id;
-        this.type = type;
-        this.date = date;
-        this.address = address;
-        this.body = body;
-        this.messageType = messageType;
     }
 
     @Override
@@ -90,14 +81,12 @@ public class Conversation {
             conversation.id = cursor.getString(cursor.getColumnIndex(Telephony.Mms.THREAD_ID));
             conversation.type = cursor.getInt(cursor.getColumnIndex(Telephony.Sms.TYPE));
             conversation.date = cursor.getLong(cursor.getColumnIndex(Telephony.Sms.DATE));
-            conversation.body = Conversation.snippet(cursor.getString(cursor.getColumnIndex(Telephony.Sms.BODY)));
+            conversation.body = cursor.getString(cursor.getColumnIndex(Telephony.Sms.BODY));
 
             if ("application/vnd.wap.multipart.related".equals(contentType) || "application/vnd.wap.multipart.mixed".equals(contentType)) {
-                conversation.messageType = Message.Type.MMS;
                 conversation.date = conversation.date * 1000; // dates are different for mms
                 conversation.address = getAllMmsAddresses(cursor.getString(cursor.getColumnIndex(Telephony.Mms._ID)));
             } else {
-                conversation.messageType = Message.Type.SMS;
                 conversation.address = Contact.normalizeAddress(cursor.getString(cursor.getColumnIndex(Telephony.Sms.ADDRESS)));
             }
 
