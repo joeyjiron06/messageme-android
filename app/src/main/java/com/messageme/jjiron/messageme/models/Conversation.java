@@ -18,8 +18,8 @@ public class Conversation {
     public String body;
     public long date;
     public String address; // phone number of other person, or list of addresses separate by a "," for group convos
-    public int type; // 1 received, 2 sent
-    public String messageType; // Message.Type
+    public String type; // sms or mms
+    private int messageStatus; // Message.Status
 
     public Conversation() {
     }
@@ -35,26 +35,11 @@ public class Conversation {
                 .append(" date: ")
                 .append(date)
                 .append(" status: ")
-                .append(type == 1 ? "received" : "sent    ")
-                .append(" messageType: ")
-                .append(messageType)
+                .append(messageStatus == 1 ? "received" : "sent    ")
                 .append(" body: ")
                 .append(body)
                 .toString();
     }
-
-    public static String snippet(String message) {
-        if (message == null) {
-            return message;
-        }
-
-        if (message.length() > 29) {
-            return message.substring(0, 28) + "...";
-        }
-
-        return message;
-    }
-
 
     public static List<Conversation> getAll() {
         Cursor cursor = App.get().getContentResolver().query(Telephony.MmsSms.CONTENT_CONVERSATIONS_URI,
@@ -79,15 +64,17 @@ public class Conversation {
             Conversation conversation = new Conversation();
 
             conversation.id = cursor.getString(cursor.getColumnIndex(Telephony.Mms.THREAD_ID));
-            conversation.type = cursor.getInt(cursor.getColumnIndex(Telephony.Sms.TYPE));
             conversation.date = cursor.getLong(cursor.getColumnIndex(Telephony.Sms.DATE));
             conversation.body = cursor.getString(cursor.getColumnIndex(Telephony.Sms.BODY));
+            conversation.messageStatus = cursor.getInt(cursor.getColumnIndex(Telephony.Sms.TYPE));
 
             if ("application/vnd.wap.multipart.related".equals(contentType) || "application/vnd.wap.multipart.mixed".equals(contentType)) {
                 conversation.date = conversation.date * 1000; // dates are different for mms
                 conversation.address = getAllMmsAddresses(cursor.getString(cursor.getColumnIndex(Telephony.Mms._ID)));
+                conversation.type = "mms";
             } else {
                 conversation.address = Contact.normalizeAddress(cursor.getString(cursor.getColumnIndex(Telephony.Sms.ADDRESS)));
+                conversation.type = "sms";
             }
 
             result.add(conversation);

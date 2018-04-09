@@ -35,8 +35,10 @@ import com.messageme.jjiron.messageme.models.Message;
 
 import java.io.ByteArrayOutputStream;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 public class Firebase {
@@ -62,7 +64,8 @@ public class Firebase {
     // cached data
     private final List<Message> outboxMessages;
     private final Set<String> sentIds;
-
+    private final Map<String, String> partUrls;
+    // todo cache messages
 
     public static Firebase getInstance() {
         if (instance == null) {
@@ -74,6 +77,7 @@ public class Firebase {
     private Firebase() {
         outboxMessages = new ArrayList<>();
         sentIds = new HashSet<>();
+        partUrls = new HashMap<>();
     }
 
 
@@ -110,6 +114,7 @@ public class Firebase {
         db.child("sent").addValueEventListener(new SentListener());
         db.child("desktop").child("conversation").addValueEventListener(new ConversationListener());
         db.child("desktop").child("requests").child("mmsUpload").addChildEventListener(new MmsUploadRequestListener());
+        db.child("mmsUploadUrls").addValueEventListener(new MmsUploadUrlsValueListener());
 
 
         // add listeners for message changes
@@ -202,6 +207,7 @@ public class Firebase {
         // copy these values so that we don't have problems iterating on a background thread
         final List<Message> outbox = new ArrayList<>(outboxMessages);
         final Set<String> sentMessageIds = new HashSet<>(sentIds);
+        final Map<String, String> partUrlsMap = new HashMap<>(partUrls);
         final Set<String> sentOutboxIds = new HashSet<>();
 
         messageSync = new AsyncTask<String, Integer, List<Message>>() {
@@ -246,6 +252,11 @@ public class Firebase {
 
                 for (Message message : messages) {
                     message.sentFromDesktop = sentMessageIds.contains(message.id);
+                    if (message.parts != null) {
+                        for (Message.Part part : message.parts) {
+                            part.url = partUrlsMap.get(part.id);// can and will be null sometimes
+                        }
+                    }
                 }
 
                 return messages;
@@ -407,18 +418,19 @@ public class Firebase {
     private class MmsUploadRequestListener extends FirebaseChildListenerAdapter {
         @Override
         public void onChildAdded(DataSnapshot dataSnapshot, String s) {
-            String mmsId = dataSnapshot.getKey();
-            Log.d(TAG, "mmsUpload child added " + mmsId);
-            attemptUploadMMSContent(mmsId);
+            String partId = dataSnapshot.getKey();
+            Log.d(TAG, "mmsUpload child added " + partId);
+            attemptUploadMMSContent(partId);
         }
 
         @SuppressLint("StaticFieldLeak")
-        private void attemptUploadMMSContent(String mmsId) {
+        private void attemptUploadMMSContent(String partId) {
             new AsyncTask<Void, Integer, byte[]>() {
 
                 @Override
                 protected byte[] doInBackground(Void... voids) {
-                    Bitmap bitmap = Message.getImage(mmsId);
+                    // there may be multiple images in one mms message.
+                    Bitmap bitmap = Message.getImage(partId);
                     byte[] imageBytes = null;
 
                     if (bitmap != null) {
@@ -430,7 +442,7 @@ public class Firebase {
                         imageBytes = imageByteStream.toByteArray();
 
                     } else {
-                        Log.d(TAG, "no bitmap for mmsId " + mmsId);
+                        Log.d(TAG, "no bitmap for partId " + partId);
                     }
 
                     return imageBytes;
@@ -439,12 +451,12 @@ public class Firebase {
                 @Override
                 protected void onPostExecute(byte[] imageBytes) {
                     if (imageBytes == null) {
-                        Log.d(TAG, "no image found for mmsId " + mmsId);
+                        Log.d(TAG, "no image found for mmsId " + partId);
                         return;
                     }
 
                     storage.child("images")
-                        .child(mmsId + ".jpg")
+                        .child(partId + ".jpg")
                         .putBytes(imageBytes)
                         .addOnSuccessListener(taskSnapshot -> {
                             Log.d(TAG, "image upload success ");
@@ -452,15 +464,30 @@ public class Firebase {
                             String url = taskSnapshot.getDownloadUrl().toString();
 
                             // remove from requests since the request is now fullfilled
-                            db.child("desktop").child("requests").child("mmsUpload").child(mmsId).removeValue();
+                            db.child("desktop").child("requests").child("mmsUpload").child(partId).removeValue();
 
-                            db.child("mmsUploadUrls").child(mmsId).setValue(url);
+                            db.child("mmsUploadUrls").child(partId).setValue(url);
                         })
                         .addOnFailureListener(e -> {
                             Log.e(TAG, "image upload error " + e);
                         });
                 }
             }.execute();
+        }
+    }
+
+    private class MmsUploadUrlsValueListener implements ValueEventListener {
+        @Override
+        public void onDataChange(DataSnapshot dataSnapshot) {
+            // cache the urls for mms parts
+            for (DataSnapshot partSnapshot : dataSnapshot.getChildren()) {
+                partUrls.put(partSnapshot.getKey(), partSnapshot.getValue(String.class));
+            }
+        }
+
+        @Override
+        public void onCancelled(DatabaseError databaseError) {
+
         }
     }
 

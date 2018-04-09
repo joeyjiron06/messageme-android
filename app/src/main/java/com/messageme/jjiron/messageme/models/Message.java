@@ -83,6 +83,7 @@ public class Message {
     public static class Part {
         public String id; // id of the part in the mms message
         public String type; // Part.Type - the type of content
+        public String url; // url of the uploaded mms content (image, video, etc.)
 
         public Part() {
         }
@@ -97,7 +98,7 @@ public class Message {
         List<Message> messages = new ArrayList<>();
 
         messages.addAll(getSmsMessages(conversationId));
-        messages.addAll(getMmsMessages(conversationId));
+//        messages.addAll(getMmsMessages(conversationId));
 
         messages.sort((m1, m2) -> {
             if (m1.date < m2.date) {
@@ -175,18 +176,12 @@ public class Message {
         return messages;
     }
 
-    public static Bitmap getImage(String mmsId) {
-        String imagePartId = getImagePartId(mmsId);
-
-        if (imagePartId == null) {
-            return null;
-        }
-
+    public static Bitmap getImage(String partId) {
         InputStream inputStream = null;
         Bitmap bitmap = null;
 
         try {
-            inputStream = getContentResolver().openInputStream(Uri.parse("content://mms/part/" + imagePartId));
+            inputStream = getContentResolver().openInputStream(Uri.parse("content://mms/part/" + partId));
             bitmap = BitmapFactory.decodeStream(inputStream);
         } catch (IOException e) {
             Log.e(TAG, "error getting image " + e);
@@ -203,31 +198,6 @@ public class Message {
         return bitmap;
     }
 
-    private static String getImagePartId(String mmsId) {
-        Cursor cursor = getContentResolver().query(
-                Uri.parse("content://mms/part"),
-                null,
-                "mid=" + mmsId,
-                null,
-                null);
-
-        String partId = null;
-
-        if (cursor != null && cursor.moveToFirst()) {
-            do {
-                String type = cursor.getString(cursor.getColumnIndex("ct"));
-                if (IMAGE_TYPES.contains(type)) {
-                    partId = cursor.getString(cursor.getColumnIndex("_id"));
-                    break;
-                }
-            } while (cursor.moveToNext());
-
-            cursor.close();
-        }
-
-        return partId;
-    }
-
     private static void setMmsParts(Message message) {
         Cursor cursor = getContentResolver().query(
                 Uri.parse("content://mms/part"),
@@ -242,7 +212,7 @@ public class Message {
                 message.body = cursor.getString(cursor.getColumnIndex(Telephony.Mms.Part.TEXT));
             } else if (IMAGE_TYPES.contains(type)) {
                 Part part = new Part();
-                part.id = cursor.getString(cursor.getColumnIndex(Telephony.Mms.Part.CONTENT_ID));
+                part.id = cursor.getString(cursor.getColumnIndex(Telephony.Mms.Part._ID));
                 part.type = Part.Type.IMAGE;
                 message.addPart(part);
             }
