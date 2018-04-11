@@ -115,6 +115,21 @@ public class Firebase {
         db.child("desktop").child("conversation").addValueEventListener(new ConversationListener());
         db.child("desktop").child("requests").child("mmsUpload").addChildEventListener(new MmsUploadRequestListener());
         db.child("mmsUploadUrls").addValueEventListener(new MmsUploadUrlsValueListener());
+        FirebaseDatabase.getInstance().getReference().child(".info/connected").addValueEventListener(new ValueEventListener() {
+            @Override
+            public void onDataChange(final DataSnapshot dataSnapshot) {
+                if (dataSnapshot.getValue(Boolean.class)){
+                    DatabaseReference onlineRef = db.child("phone").child("online");
+                    onlineRef.onDisconnect().setValue(false);
+                    onlineRef.setValue(true);
+                }
+            }
+
+            @Override
+            public void onCancelled(final DatabaseError databaseError) {
+                Log.d(TAG, "DatabaseError:" + databaseError);
+            }
+        });
 
 
         // add listeners for message changes
@@ -385,15 +400,16 @@ public class Firebase {
             @Override
             public void onReceive(Context context, Intent intent) {
                 getContext().unregisterReceiver(this);
+                int result = getResultCode();
 
-                switch (getResultCode()) {
+                switch (result) {
                     case Activity.RESULT_OK:
                         Log.d(TAG, "message sent!" + outboxMessage.toString());
                         break;
                     default:
                         // TODO handle error scenario
                         Toast.makeText(getContext(), "error sending message", Toast.LENGTH_SHORT).show();
-                        Log.d(TAG, "error sending message");
+                        Log.d(TAG, "error sending message " + (result));
                         break;
                 }
             }

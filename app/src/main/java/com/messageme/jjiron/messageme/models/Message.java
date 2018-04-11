@@ -98,7 +98,7 @@ public class Message {
         List<Message> messages = new ArrayList<>();
 
         messages.addAll(getSmsMessages(conversationId));
-//        messages.addAll(getMmsMessages(conversationId));
+        messages.addAll(getMmsMessages(conversationId));
 
         messages.sort((m1, m2) -> {
             if (m1.date < m2.date) {
