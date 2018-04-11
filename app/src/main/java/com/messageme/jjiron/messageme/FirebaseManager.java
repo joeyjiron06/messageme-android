@@ -41,14 +41,14 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-public class Firebase {
-    private static final String TAG = "Firebase";
+public class FirebaseManager {
+    private static final String TAG = "FirebaseManager";
 
     private static final String SENT_BROADCAST = "SMS_BROADCAST";
 
     private SmsMmsContentListener smsMmsContentListener;
 
-    private static Firebase instance;
+    private static FirebaseManager instance;
     private String conversationId;
 
     // syncing tasks
@@ -67,14 +67,14 @@ public class Firebase {
     private final Map<String, String> partUrls;
     // todo cache messages
 
-    public static Firebase getInstance() {
+    public static FirebaseManager getInstance() {
         if (instance == null) {
-            instance = new Firebase();
+            instance = new FirebaseManager();
         }
         return instance;
     }
 
-    private Firebase() {
+    private FirebaseManager() {
         outboxMessages = new ArrayList<>();
         sentIds = new HashSet<>();
         partUrls = new HashMap<>();

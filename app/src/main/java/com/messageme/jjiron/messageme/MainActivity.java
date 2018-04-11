@@ -9,9 +9,6 @@ import android.util.Log;
 import android.view.View;
 
 import com.facebook.login.LoginManager;
-import com.messageme.jjiron.messageme.models.Message;
-
-import java.util.List;
 
 
 public class MainActivity extends AppCompatActivity {
@@ -46,7 +43,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void onAllPermissionsGranted() {
         Log.d(TAG, "onAllPermissionsGranted");
-        Firebase.getInstance().login();
+        FirebaseManager.getInstance().login();
     }
 
 	@Override
