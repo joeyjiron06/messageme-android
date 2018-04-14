@@ -1,9 +1,17 @@
-package com.messageme.jjiron.messageme;
+package com.messageme.jjiron.messageme.util;
 
+import android.content.ContentResolver;
+import android.content.Context;
 import android.database.Cursor;
 import android.util.Log;
 
 public class Cursors {
+    public static Context context;
+
+    public static ContentResolver getContentResolver() {
+        return context.getContentResolver();
+    }
+
     public static void iterate(Cursor cursor, Runnable runnable) {
         if (cursor != null && cursor.moveToFirst()) {
             do {

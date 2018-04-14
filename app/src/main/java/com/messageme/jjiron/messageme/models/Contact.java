@@ -4,8 +4,7 @@ import android.database.Cursor;
 import android.provider.ContactsContract;
 
 import com.google.firebase.database.IgnoreExtraProperties;
-import com.messageme.jjiron.messageme.App;
-import com.messageme.jjiron.messageme.Cursors;
+import com.messageme.jjiron.messageme.util.Cursors;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -38,7 +37,7 @@ public class Contact {
     }
 
     public static List<Contact> getAllMobile() {
-        Cursor cursor = App.get().getContentResolver().query(
+        Cursor cursor = Cursors.getContentResolver().query(
             ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
             new String[] {
                 ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,

@@ -1,4 +1,4 @@
-package com.messageme.jjiron.messageme;
+package com.messageme.jjiron.messageme.firebase;
 
 import android.annotation.SuppressLint;
 import android.app.Activity;
@@ -32,6 +32,7 @@ import com.google.firebase.storage.StorageReference;
 import com.messageme.jjiron.messageme.models.Contact;
 import com.messageme.jjiron.messageme.models.Conversation;
 import com.messageme.jjiron.messageme.models.Message;
+import com.messageme.jjiron.messageme.util.Cursors;
 
 import java.io.ByteArrayOutputStream;
 import java.util.ArrayList;
@@ -55,7 +56,7 @@ public class FirebaseManager {
     private AsyncTask<Void, Integer, List<Contact>> contactsSync;
     private AsyncTask<Void, Integer, List<Conversation>> conversationSync;
     private AsyncTask<String, Integer, List<Message>> messageSync;
-    private boolean hasLoggedIn;
+    private boolean hasInitialized;
 
     // firebase references
     private DatabaseReference db;
@@ -84,12 +85,13 @@ public class FirebaseManager {
 
     // METHODS
 
-    public void login() {
-        if (hasLoggedIn) {
+    public void initialize(Context context) {
+        if (hasInitialized) {
             return;
         }
 
-        hasLoggedIn = true;
+        hasInitialized = true;
+        Cursors.context = context;
 
         FirebaseUser user = FirebaseAuth.getInstance().getCurrentUser();
 
@@ -137,6 +139,7 @@ public class FirebaseManager {
         smsMmsContentListener = new SmsMmsContentListener();
         contentResolver.registerContentObserver(Telephony.Sms.CONTENT_URI, true, smsMmsContentListener);
         contentResolver.registerContentObserver(Telephony.Mms.CONTENT_URI, true, smsMmsContentListener);
+        contentResolver.registerContentObserver(Telephony.MmsSms.CONTENT_CONVERSATIONS_URI, true, new ConversationContentObserver());
 
         Contact.myNumber = Contact.normalizeAddress(((TelephonyManager) getContext().getSystemService(Context.TELEPHONY_SERVICE)).getLine1Number());
 
@@ -146,7 +149,7 @@ public class FirebaseManager {
     }
 
     private Context getContext() {
-        return App.get();
+        return Cursors.context;
     }
     private ContentResolver getContentResolver() {
         return getContext().getContentResolver();
@@ -216,6 +219,7 @@ public class FirebaseManager {
         Log.d(TAG, "syncMessages " + conversationId);
 
         if (messageSync != null) {
+            Log.d(TAG, "message sync in progress. cancelling ");
             messageSync.cancel(true);
         }
 
@@ -228,14 +232,30 @@ public class FirebaseManager {
         messageSync = new AsyncTask<String, Integer, List<Message>>() {
             @Override
             protected List<Message> doInBackground(String... strings) {
+                Log.d(TAG, "message sync running in background ");
+
+                if (isCancelled()) {
+                    return null;
+                }
+
                 // all the sms/mms messages for the conversation
                 // TODO improve this with caching
                 List<Message> messages = Message.getAll(conversationId);
+
+                if (isCancelled()) {
+                    return null;
+                }
 
                 // merge outbox messages, but also just add items that have NOT been sent to avoid
                 // duplication
                 if (outbox.size() > 0) {
                     for (Message outboxMessage : outbox) {
+                        // part of different conversation - dont add to the list of messages
+                        if (!conversationId.equals(outboxMessage.conversationId)) {
+                            continue;
+                        }
+
+
                         Message sentMessage = findMatch(messages, outboxMessage);
 
                         if (sentMessage != null) {
@@ -243,6 +263,9 @@ public class FirebaseManager {
                             sentMessageIds.add(sentMessage.id);
                             sentOutboxIds.add(outboxMessage.id);
                         } else {
+                            Log.d(TAG, "no match found for outbox message ");
+                            Log.d(TAG, outboxMessage.toString());
+
                             // hasn't been sent. add it to the list so it shows up in the UI
                             messages.add(outboxMessage);
                         }
@@ -279,8 +302,16 @@ public class FirebaseManager {
 
             @Override
             protected void onPostExecute(List<Message> messages) {
+                if (isCancelled()) {
+                    return;
+                }
+
+
+                Log.d(TAG, "message sync post execute ");
+
                 // remove any sent outbox messages from the outbox
                 for (String outboxId : sentOutboxIds) {
+                    removeOutboxMessage(outboxId);
                     db.child("outbox").child(outboxId).removeValue();
                 }
 
@@ -307,6 +338,9 @@ public class FirebaseManager {
 
             // the message list is sorted so we can say that we've gone to far back in time.
             if (message.date < outboxMessage.date) {
+                Log.d(TAG, "message is older");
+                Log.d(TAG, "message " + message);
+                Log.d(TAG, "outbox message " + outboxMessage);
                 break;
             }
 
@@ -316,10 +350,38 @@ public class FirebaseManager {
                 message.body != null &&
                 message.body.equals(outboxMessage.body) ) {
                 return message;
+            } else {
+                Log.d(TAG, "messages are different ");
+                Log.d(TAG, "message " + message);
+                Log.d(TAG, "outbox message " + outboxMessage);
             }
         }
 
         return null;
+    }
+
+    private void removeOutboxMessage(String messageId) {
+        Log.d(TAG, "removing message with id " + messageId);
+
+        // remove the right message from the list
+        for (int i=0; i < outboxMessages.size(); ++i) {
+            Message message = outboxMessages.get(i);
+            if (message.id.equals(messageId)) {
+                Log.d(TAG, "removing message " + message);
+                outboxMessages.remove(i);
+                break;
+            }
+        }
+    }
+
+    private boolean hasOutboxMessage(String messageId) {
+        for (Message message: outboxMessages) {
+            if (message.id.equals(messageId)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     // INTERNAL LISTENERS
@@ -339,7 +401,6 @@ public class FirebaseManager {
         public void onCancelled(DatabaseError databaseError) { }
     }
 
-
     private class OutboxListener extends FirebaseChildListenerAdapter {
         @Override
         public void onChildAdded(DataSnapshot dataSnapshot, String s) {
@@ -353,6 +414,22 @@ public class FirebaseManager {
                 Log.d(TAG, "outbox tried to process but address is null " + dataSnapshot.getValue().toString());
                 return;
             }
+
+            if (outboxMessage.status != Message.Status.REQUESTING) {
+                Log.d(TAG, "outbox message is not in the requesting state. not sending the message " + outboxMessage);
+                return;
+            }
+
+            if (hasOutboxMessage(outboxMessage.id)) {
+                Log.d(TAG, "already sending message but received a new outbox message. " + outboxMessage);
+                return;
+            }
+
+            // the date received from the client might be ahead of our time so we need to adjust for
+            // that and mark the date a now. it causes issues when trying to find message that was sent
+            outboxMessage.date = System.currentTimeMillis();
+
+            Log.d(TAG, "outbox message added. sending... " + outboxMessage);
 
             outboxMessages.add(outboxMessage);
 
@@ -379,14 +456,8 @@ public class FirebaseManager {
                 return;
             }
 
-            // remove the right message from the list
-            for (int i=0; i < outboxMessages.size(); ++i) {
-                Message message = outboxMessages.get(i);
-                if (message.id.equals(outboxMessage.id)) {
-                    outboxMessages.remove(i);
-                    break;
-                }
-            }
+            Log.d(TAG, "outbox message removed " + outboxMessage);
+            removeOutboxMessage(outboxMessage.id);
         }
 
         private class OutboxMessageErrorReceiver extends BroadcastReceiver {
@@ -407,12 +478,27 @@ public class FirebaseManager {
                         Log.d(TAG, "message sent!" + outboxMessage.toString());
                         break;
                     default:
+                        outboxMessage.status = Message.Status.FAILED;
+                        db.child("outbox").child(outboxMessage.id).setValue(outboxMessage);
+
                         // TODO handle error scenario
                         Toast.makeText(getContext(), "error sending message", Toast.LENGTH_SHORT).show();
                         Log.d(TAG, "error sending message " + (result));
                         break;
                 }
             }
+        }
+    }
+
+    private class ConversationContentObserver extends ContentObserver {
+        public ConversationContentObserver() {
+            super(new Handler());
+        }
+
+        @Override
+        public void onChange(boolean selfChange) {
+            super.onChange(selfChange);
+            syncAllConversations();
         }
     }
 
@@ -520,6 +606,7 @@ public class FirebaseManager {
         @Override
         public void onChange(boolean selfChange) {
             super.onChange(selfChange);
+            Log.d(TAG, "sms/mms content changed");
             syncMessages(conversationId);
         }
     }

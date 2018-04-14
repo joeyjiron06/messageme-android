@@ -5,11 +5,9 @@ import android.net.Uri;
 import android.provider.Telephony;
 
 import com.google.firebase.database.IgnoreExtraProperties;
-import com.messageme.jjiron.messageme.App;
-import com.messageme.jjiron.messageme.Cursors;
+import com.messageme.jjiron.messageme.util.Cursors;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 
 @IgnoreExtraProperties
@@ -42,7 +40,7 @@ public class Conversation {
     }
 
     public static List<Conversation> getAll() {
-        Cursor cursor = App.get().getContentResolver().query(Telephony.MmsSms.CONTENT_CONVERSATIONS_URI,
+        Cursor cursor = Cursors.getContentResolver().query(Telephony.MmsSms.CONTENT_CONVERSATIONS_URI,
                 new String[]{
                     Telephony.Mms._ID,
                     Telephony.Mms.THREAD_ID,
@@ -95,7 +93,7 @@ public class Conversation {
 
 
     private static String getAllMmsAddresses(String id) {
-        Cursor cursor = App.get().getContentResolver().query(
+        Cursor cursor = Cursors.getContentResolver().query(
                 Uri.parse("content://mms/" + id + "/addr"),
                 new String[]{Telephony.Sms.ADDRESS},
                 "msg_id=" + id,

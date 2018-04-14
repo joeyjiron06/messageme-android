@@ -1,4 +1,4 @@
-package com.messageme.jjiron.messageme;
+package com.messageme.jjiron.messageme.activity;
 
 import android.content.Intent;
 import android.support.v7.app.AppCompatActivity;
@@ -13,6 +13,7 @@ import com.facebook.FacebookException;
 import com.facebook.login.LoginManager;
 import com.facebook.login.LoginResult;
 import com.facebook.login.widget.LoginButton;
+import com.messageme.jjiron.messageme.R;
 
 
 public class LoginActivity extends AppCompatActivity {

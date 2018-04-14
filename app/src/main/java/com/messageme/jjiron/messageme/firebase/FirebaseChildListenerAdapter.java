@@ -1,4 +1,4 @@
-package com.messageme.jjiron.messageme;
+package com.messageme.jjiron.messageme.firebase;
 
 import com.google.firebase.database.ChildEventListener;
 import com.google.firebase.database.DataSnapshot;

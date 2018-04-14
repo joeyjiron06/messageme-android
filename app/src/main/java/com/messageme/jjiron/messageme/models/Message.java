@@ -1,6 +1,5 @@
 package com.messageme.jjiron.messageme.models;
 
-import android.content.ContentResolver;
 import android.database.Cursor;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
@@ -9,8 +8,7 @@ import android.provider.Telephony;
 import android.util.Log;
 
 import com.google.firebase.database.IgnoreExtraProperties;
-import com.messageme.jjiron.messageme.App;
-import com.messageme.jjiron.messageme.Cursors;
+import com.messageme.jjiron.messageme.util.Cursors;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -70,11 +68,15 @@ public class Message {
     public static class Status {
         public static final int RECEIVED = 1;
         public static final int SENT = 2;
+        public static final int REQUESTING = 3;
+        public static final int FAILED = 4;
 
         static String toString(int val) {
             switch (val) {
                 case RECEIVED: return "RECEIVED";
                 case SENT: return "SENT";
+                case REQUESTING: return "REQUESTING";
+                case FAILED: return "FAILED";
                 default: return "UNKNOWN " + val;
             }
         }
@@ -115,7 +117,7 @@ public class Message {
     public static List<Message> getSmsMessages(String conversationId) {
         List<Message> messages = new ArrayList<>();
 
-        Cursor smsCursor = getContentResolver().query(
+        Cursor smsCursor = Cursors.getContentResolver().query(
                 Telephony.Sms.CONTENT_URI,
                 new String[]{
                     Telephony.Sms._ID,
@@ -148,7 +150,7 @@ public class Message {
     public static List<Message> getMmsMessages(String conversationId) {
         List<Message> messages = new ArrayList<>();
 
-        Cursor mmsCursor = getContentResolver().query(
+        Cursor mmsCursor = Cursors.getContentResolver().query(
                 Telephony.Mms.CONTENT_URI,
                 null,
                 "thread_id=" + conversationId,
@@ -181,7 +183,7 @@ public class Message {
         Bitmap bitmap = null;
 
         try {
-            inputStream = getContentResolver().openInputStream(Uri.parse("content://mms/part/" + partId));
+            inputStream = Cursors.getContentResolver().openInputStream(Uri.parse("content://mms/part/" + partId));
             bitmap = BitmapFactory.decodeStream(inputStream);
         } catch (IOException e) {
             Log.e(TAG, "error getting image " + e);
@@ -199,7 +201,7 @@ public class Message {
     }
 
     private static void setMmsParts(Message message) {
-        Cursor cursor = getContentResolver().query(
+        Cursor cursor = Cursors.getContentResolver().query(
                 Uri.parse("content://mms/part"),
                 null,
                 "mid=" + message.id,
@@ -221,7 +223,7 @@ public class Message {
     }
 
     private static String getMmsAddress(String id) {
-        Cursor cursor = getContentResolver().query(
+        Cursor cursor = Cursors.getContentResolver().query(
                 Uri.parse("content://mms/" + id + "/addr"),
                 new String[]{Telephony.Sms.ADDRESS},
                 "msg_id=" + id,
@@ -235,10 +237,5 @@ public class Message {
         }
 
         return null;
-    }
-
-
-    private static ContentResolver getContentResolver() {
-        return App.get().getContentResolver();
     }
 }
