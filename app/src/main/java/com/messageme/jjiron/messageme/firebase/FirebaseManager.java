@@ -585,6 +585,7 @@ public class FirebaseManager {
             for (DataSnapshot partSnapshot : dataSnapshot.getChildren()) {
                 partUrls.put(partSnapshot.getKey(), partSnapshot.getValue(String.class));
             }
+            syncMessages(conversationId);
         }
 
         @Override
